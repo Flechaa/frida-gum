@@ -1,6 +1,8 @@
 #ifdef HAVE_DARWIN
 
-#include "gum/gumdarwinmapper.h"
+#include "gum/gummapper.h"
+
+#include "gum/gumdarwin.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,15 +31,15 @@ main (gint argc,
   GTimer * timer = NULL;
   GError * error = NULL;
   GumDarwinModuleResolver * resolver = NULL;
-  GumDarwinMapper * mapper = NULL;
+  GumMapper * mapper = NULL;
   const gchar * config;
   gchar * raw_config;
   mach_vm_address_t base_address = 0;
   gsize mapped_size;
   kern_return_t kr;
-  GumDarwinModule * module = NULL;
-  GumDarwinMapperConstructor constructor;
-  GumDarwinMapperDestructor destructor;
+  GumMachoModule * module = NULL;
+  GumMapperConstructor constructor;
+  GumMapperDestructor destructor;
   AgentEntrypoint entrypoint;
   gint unload_policy = 0;
   DarwinInjectorState injector_state;
@@ -66,7 +68,8 @@ main (gint argc,
       (guint) (g_timer_elapsed (timer, NULL) * 1000.0));
 
   g_timer_start (timer);
-  mapper = gum_darwin_mapper_new_from_file (dylib_path, resolver, &error);
+  mapper = gum_mapper_new_from_file (dylib_path,
+      GUM_MODULE_RESOLVER (resolver), &error);
   if (error != NULL)
     goto failure;
   g_print ("Parsed Mach-O in %u ms\n",
@@ -83,12 +86,12 @@ main (gint argc,
           "\"teardown\":\"full\""
       "}";
   raw_config = g_base64_encode ((const guchar *) config, strlen (config));
-  gum_darwin_mapper_add_apple_parameter (mapper, "frida_gadget_config",
+  gum_mapper_add_apple_parameter (mapper, "frida_gadget_config",
       raw_config);
   g_free (raw_config);
 
   g_timer_start (timer);
-  mapped_size = gum_darwin_mapper_size (mapper);
+  mapped_size = gum_mapper_size (mapper);
   g_print ("Computed footprint in %u ms\n",
       (guint) (g_timer_elapsed (timer, NULL) * 1000.0));
 
@@ -96,7 +99,7 @@ main (gint argc,
   g_assert_cmpint (kr, ==, KERN_SUCCESS);
 
   g_timer_start (timer);
-  gum_darwin_mapper_map (mapper, base_address, &error);
+  gum_mapper_map (mapper, base_address, &error);
   if (error != NULL)
     goto failure;
   g_print ("Mapped in %u ms\n",
@@ -105,12 +108,10 @@ main (gint argc,
   g_object_get (mapper, "module", &module, NULL);
   g_print ("Base address: 0x%llx\n", module->base_address);
 
-  constructor =
-      GSIZE_TO_POINTER (gum_darwin_mapper_constructor (mapper));
-  destructor =
-      GSIZE_TO_POINTER (gum_darwin_mapper_destructor (mapper));
-  entrypoint =
-      GSIZE_TO_POINTER (gum_darwin_mapper_resolve (mapper, "frida_agent_main"));
+  constructor = GSIZE_TO_POINTER (gum_mapper_constructor (mapper));
+  destructor = GSIZE_TO_POINTER (gum_mapper_destructor (mapper));
+  entrypoint = GSIZE_TO_POINTER (
+      gum_mapper_resolve (mapper, "frida_agent_main"));
 
   g_timer_start (timer);
   constructor ();
